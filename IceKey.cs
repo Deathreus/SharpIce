@@ -41,11 +41,11 @@ namespace SharpIce
                         new int[8]{0, 1, 2, 3, 2, 1, 3, 0},
                         new int[8]{1, 3, 2, 0, 3, 1, 0, 2}};
         /*
-		 * 8-bit Galois Field multiplication of a by b, modulo m.
-		 * Just like arithmetic multiplication, except that additions and
-		 * subtractions are replaced by XOR.
-		 */
-        private uint gf_mult(uint a, uint b, uint m)
+         * 8-bit Galois Field multiplication of a by b, modulo m.
+         * Just like arithmetic multiplication, except that additions and
+         * subtractions are replaced by XOR.
+         */
+        private uint GaloisFieldMult(uint a, uint b, uint mod)
         {
             uint res = 0;
 
@@ -58,122 +58,120 @@ namespace SharpIce
                 b >>= 1;
 
                 if (a >= 256)
-                    a ^= m;
+                    a ^= mod;
             }
 
             return res;
         }
         /*
-		 * Galois Field exponentiation.
-		 * Raise the base to the power of 7, modulo m.
-		 */
-        private ulong gf_exp7(uint b, uint m)
+         * Galois Field exponentiation.
+         * Raise the base to the power of 7, modulo m.
+         */
+        private ulong GaloisFieldExp7(uint @base, uint mod)
         {
-            uint x;
-
-            if (b == 0)
+            if (@base == 0)
                 return 0;
 
-            x = gf_mult(b, b, m);
-            x = gf_mult(b, x, m);
-            x = gf_mult(x, x, m);
-            return gf_mult(b, x, m);
+            uint x = GaloisFieldMult(@base, @base, mod);
+            x = GaloisFieldMult(@base, x, mod);
+            x = GaloisFieldMult(x, x, mod);
+            return GaloisFieldMult(@base, x, mod);
         }
         /*
-		 * Carry out the ICE 32-bit P-box permutation.
-		 */
-        private ulong ice_perm32(ulong x)
+         * Carry out the ICE 32-bit P-box permutation.
+         */
+        private ulong ICEPerm32(ulong exp)
         {
             ulong res = 0;
             int pbox = 0;
 
-            while (x > 0)
+            while (exp > 0)
             {
-                if ((x & 1) > 0)
+                if ((exp & 1) > 0)
                     res |= ICEPBox[pbox];
 
                 pbox++;
-                x >>= 1;
+                exp >>= 1;
             }
 
             return res;
         }
         /*
-		 * The single round ICE f function.
-		 */
-        private ulong ice_f(ulong p, IceSubKey isk)
+         * The single round ICE f function.
+         */
+        private ulong ICEFormulate(ulong perm, IceSubKey subKey)
         {
             ulong tl, tr;       /* Expanded 40-bit values */
             ulong al, ar;       /* Salted expanded 40-bit values */
 
             /* Left half expansion */
-            tl = ((p >> 16) & 0x3FF) | (((p >> 14) | (p << 18)) & 0xFFC00);
+            tl = ((perm >> 16) & 0x3FF) | (((perm >> 14) | (perm << 18)) & 0xFFC00);
 
             /* Right half expansion */
-            tr = (p & 0x3FF) | ((p << 2) & 0xFFC00);
+            tr = (perm & 0x3FF) | ((perm << 2) & 0xFFC00);
 
             /* Perform the salt permutation */
             // al = (tr & sk->val[2]) | (tl & ~sk->val[2]);
             // ar = (tl & sk->val[2]) | (tr & ~sk->val[2]);
-            al = isk.Val[2] & (tl ^ tr);
+            al = subKey.Val[2] & (tl ^ tr);
             ar = al ^ tr;
             al ^= tl;
 
-            al ^= isk.Val[0];   /* XOR with the subkey */
-            ar ^= isk.Val[1];
+            al ^= subKey.Val[0];   /* XOR with the subkey */
+            ar ^= subKey.Val[1];
 
             /* S-box lookup and permutation */
             return ICESBox[0, (al >> 10)] | ICESBox[1, (al & 0x3FF)] | ICESBox[2, (ar >> 10)] | ICESBox[3, (ar & 0x3FF)];
         }
         /*
-		 * Initialise the ICE S-boxes.
-		 * This only has to be done once.
-		 */
+         * Initialise the ICE S-boxes.
+         * This only has to be done once.
+         */
         private void IceSBoxesInit()
         {
             for (int i = 0; i < 1024; i++)
             {
-                int col = (i >> 1) & 0xFF;
+                int column = (i >> 1) & 0xFF;
                 int row = (i & 0x1) | ((i & 0x200) >> 8);
-                ulong x;
+                ulong exp;
 
-                x = gf_exp7((uint)col ^ ICEXOR[0, row], ICESMod[0, row]) << 24;
-                ICESBox[0, i] = ice_perm32(x);
+                exp = GaloisFieldExp7((uint)column ^ ICEXOR[0, row], ICESMod[0, row]) << 24;
+                ICESBox[0, i] = ICEPerm32(exp);
 
-                x = gf_exp7((uint)col ^ ICEXOR[1, row], ICESMod[1, row]) << 16;
-                ICESBox[1, i] = ice_perm32(x);
+                exp = GaloisFieldExp7((uint)column ^ ICEXOR[1, row], ICESMod[1, row]) << 16;
+                ICESBox[1, i] = ICEPerm32(exp);
 
-                x = gf_exp7((uint)col ^ ICEXOR[2, row], ICESMod[2, row]) << 8;
-                ICESBox[2, i] = ice_perm32(x);
+                exp = GaloisFieldExp7((uint)column ^ ICEXOR[2, row], ICESMod[2, row]) << 8;
+                ICESBox[2, i] = ICEPerm32(exp);
 
-                x = gf_exp7((uint)col ^ ICEXOR[3, row], ICESMod[3, row]);
-                ICESBox[3, i] = ice_perm32(x);
+                exp = GaloisFieldExp7((uint)column ^ ICEXOR[3, row], ICESMod[3, row]);
+                ICESBox[3, i] = ICEPerm32(exp);
             }
         }
         /*
-		 * Set 8 rounds [n, n+7] of the key schedule of an ICE key.
-		 */
-        private void ScheduleBuild(ushort[] kb, int n, int[] keyrot)
+         * Set 8 rounds [n, n+7] of the key schedule of an ICE key.
+         */
+        private void ScheduleBuild(ushort[] keyBuild, int n, int[] keyRotations)
         {
             for (int i = 0; i < 8; i++)
             {
-                int kr = keyrot[i];
-                ref IceSubKey isk = ref _keysched[n + i];
+                int keyRotation = keyRotations[i];
+                IceSubKey subKeys = _keysched[n + i];
 
                 for (int j = 0; j < 3; j++)
-                    isk.Val[j] = 0;
+                    subKeys.Val[j] = 0;
 
                 for (int j = 0; j < 15; j++)
                 {
-                    ref ulong curr_sk = ref isk.Val[j % 3];
+                    ref ulong currSubKey = ref subKeys.Val[j % 3];
 
                     for (int k = 0; k < 4; k++)
                     {
-                        ref ushort curr_kb = ref kb[(kr + k) & 3];
-                        int bit = curr_kb & 1;
+                        ref ushort currKeyBuild = ref keyBuild[(keyRotation + k) & 3];
+                        int bit = currKeyBuild & 1;
 
-                        curr_sk = (curr_sk << 1) | (uint)bit;
-                        curr_kb = (ushort)((curr_kb >> 1) | ((bit ^ 1) << 15));
+                        currSubKey = (currSubKey << 1) | (uint)bit;
+                        currKeyBuild = (ushort)((currKeyBuild >> 1) | ((bit ^ 1) << 15));
                     }
                 }
             }
@@ -211,55 +209,53 @@ namespace SharpIce
         /// Set the key schedule of an ICE key.
         /// </summary>
         /// <param name="key">An n length string of characters where n=Size*8</param>
-        public void Set(string key)
+        public IceKey Set(string key)
         {
-            if (Rounds == 8)
+            ushort[] keyBuild = new ushort[4];
+            if (Size == 1)
             {
-                ushort[] kb = new ushort[4];
-
                 for (int i = 0; i < 4; i++)
-                    kb[3 - i] = (ushort)((key[i * 2] << 8) | key[i * 2 + 1]);
+                    keyBuild[3 - i] = (ushort)((key[i * 2] << 8) | key[i * 2 + 1]);
 
-                ScheduleBuild(kb, 0, ICEKeyRotation[0]);
-                return;
+                ScheduleBuild(keyBuild, 0, ICEKeyRotation[0]);
+                return this;
             }
 
             for (int i = 0; i < Size; i++)
             {
-                ushort[] kb = new ushort[4];
-
                 for (int j = 0; j < 4; j++)
-                    kb[3 - j] = (ushort)((key[i * 8 + j * 2] << 8) | key[i * 8 + j * 2 + 1]);
+                    keyBuild[3 - j] = (ushort)((key[i * 8 + j * 2] << 8) | key[i * 8 + j * 2 + 1]);
 
-                ScheduleBuild(kb, i * 8, ICEKeyRotation[0]);
-                ScheduleBuild(kb, Rounds - 8 - i * 8, ICEKeyRotation[1]);
+                ScheduleBuild(keyBuild, i * 8, ICEKeyRotation[0]);
+                ScheduleBuild(keyBuild, Rounds - 8 - i * 8, ICEKeyRotation[1]);
             }
+
+            return this;
         }
         /// <summary>
         /// Encrypt a block of 8 bytes of data with the given ICE key.
         /// </summary>
         /// <param name="plaintext"></param>
         /// <param name="ciphertext"></param>
-        public void Encrypt(byte[] plaintext, ref byte[] ciphertext)
+        public void Encrypt(byte[] plaintext, out byte[] ciphertext)
         {
-            ulong l, r;
-
-            l = (((ulong)plaintext[0]) << 24) | (((ulong)plaintext[1]) << 16) | (((ulong)plaintext[2]) << 8) | plaintext[3];
-            r = (((ulong)plaintext[4]) << 24) | (((ulong)plaintext[5]) << 16) | (((ulong)plaintext[6]) << 8) | plaintext[7];
+            ulong leftBits = ((ulong)plaintext[0] << 24) | ((ulong)plaintext[1] << 16) | ((ulong)plaintext[2]) << 8 | plaintext[3];
+            ulong rightBits = ((ulong)plaintext[4] << 24) | ((ulong)plaintext[5] << 16) | ((ulong)plaintext[6] << 8) | plaintext[7];
 
             for (int i = 0; i < Rounds; i += 2)
             {
-                l ^= ice_f(r, _keysched[i]);
-                r ^= ice_f(l, _keysched[i + 1]);
+                leftBits ^= ICEFormulate(rightBits, _keysched[i]);
+                rightBits ^= ICEFormulate(leftBits, _keysched[i + 1]);
             }
 
+            ciphertext = new byte[BlockSize];
             for (int i = 0; i < 4; i++)
             {
-                ciphertext[3 - i] = (byte)(r & 0xFF);
-                ciphertext[7 - i] = (byte)(l & 0xFF);
+                ciphertext[3 - i] = (byte)(rightBits & 0xFF);
+                ciphertext[7 - i] = (byte)(leftBits & 0xFF);
 
-                r >>= 8;
-                l >>= 8;
+                rightBits >>= 8;
+                leftBits >>= 8;
             }
         }
         /// <summary>
@@ -267,26 +263,25 @@ namespace SharpIce
         /// </summary>
         /// <param name="ciphertext"></param>
         /// <param name="plaintext"></param>
-        public void Decrypt(byte[] ciphertext, ref byte[] plaintext)
+        public void Decrypt(byte[] ciphertext, out byte[] plaintext)
         {
-            ulong l, r;
-
-            l = (((ulong)ciphertext[0]) << 24) | (((ulong)ciphertext[1]) << 16) | (((ulong)ciphertext[2]) << 8) | ciphertext[3];
-            r = (((ulong)ciphertext[4]) << 24) | (((ulong)ciphertext[5]) << 16) | (((ulong)ciphertext[6]) << 8) | ciphertext[7];
+            ulong leftBits = ((ulong)ciphertext[0] << 24) | ((ulong)ciphertext[1] << 16) | ((ulong)ciphertext[2] << 8) | ciphertext[3];
+            ulong rightBits = ((ulong)ciphertext[4] << 24) | ((ulong)ciphertext[5] << 16) | ((ulong)ciphertext[6] << 8) | ciphertext[7];
 
             for (int i = Rounds - 1; i > 0; i -= 2)
             {
-                l ^= ice_f(r, _keysched[i]);
-                r ^= ice_f(l, _keysched[i - 1]);
+                leftBits ^= ICEFormulate(rightBits, _keysched[i]);
+                rightBits ^= ICEFormulate(leftBits, _keysched[i - 1]);
             }
 
+            plaintext = new byte[BlockSize];
             for (int i = 0; i < 4; i++)
             {
-                plaintext[3 - i] = (byte)(r & 0xFF);
-                plaintext[7 - i] = (byte)(l & 0xFF);
+                plaintext[3 - i] = (byte)(rightBits & 0xFF);
+                plaintext[7 - i] = (byte)(leftBits & 0xFF);
 
-                r >>= 8;
-                l >>= 8;
+                rightBits >>= 8;
+                leftBits >>= 8;
             }
         }
         /// <summary>
