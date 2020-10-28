@@ -34,57 +34,75 @@ namespace SharpIce
                 return;
             }
 
-            progressBar1.Value = 0;
-
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
             foreach (string file in files)
             {
-                FileStream fs = File.Open(file, FileMode.Open, FileAccess.Read);
-                if (fs.CanRead)
+                ThreadPool.QueueUserWorkItem(async (o) =>
                 {
-                    ThreadPool.QueueUserWorkItem((f) =>
+                    using (FileStream fsr = File.Open(file, FileMode.Open, FileAccess.Read))
                     {
-                        var fsr = (FileStream)f;
-                        fsr.Seek(0, SeekOrigin.Begin);
-
-                        string ext = file.Substring(file.LastIndexOf('.'));
-                        bool bShouldEncrypt = ext.Equals(".txt");
-
-                        FileStream fsw;
-                        if (bShouldEncrypt)
-                            fsw = File.Create(file.Replace(ext, ".ctx"));
-                        else
-                            fsw = File.Create(file.Replace(ext, ".txt"));
-
-                        long lFileSize = fsr.Length;
-
-                        var ice = new IceKey(0);
-                        ice.Set(ICEKey);
-
-                        int iBlockSize = ice.BlockSize;
-
-                        for (int i = 0; i < lFileSize; i += iBlockSize)
+                        if (fsr.CanRead)
                         {
-                            byte[] pBuf = new byte[iBlockSize];
-                            fsr.Read(pBuf, 0, iBlockSize);
+                            progressBar1.Value = 0;
 
-                            byte[] pOutBuf = new byte[iBlockSize];
-                            if (bShouldEncrypt)
-                                ice.Encrypt(pBuf, ref pOutBuf);
-                            else
-                                ice.Decrypt(pBuf, ref pOutBuf);
+                            fsr.Seek(0, SeekOrigin.Begin);
+                            int iFileSize = (int)fsr.Length;
 
-                            fsw.Write(pOutBuf, 0, pOutBuf.Length);
+                            string ext = file.Substring(file.LastIndexOf('.'));
+                            bool bShouldEncrypt = ext.Equals(".txt");
 
-                            progressBar1.Value += (i / (int)lFileSize) * 100;
+                            string newExt = bShouldEncrypt ? ".ctx" : ".txt";
+
+                            using (FileStream fsw = File.Create(file.Replace(ext, newExt)))
+                            {
+                                byte[] inBuf = new byte[iFileSize];
+                                int nRead = await fsr.ReadAsync(inBuf, 0, iFileSize);
+                                byte[] outBuf = new byte[iFileSize];
+
+                                IceKey ice = new IceKey(0).Set(ICEKey);
+
+                                int iBlockSize = ice.BlockSize;
+                                int iBytesLeft = iFileSize;
+                                for (int i = 0; i < iFileSize && iBytesLeft >= iBlockSize; i += iBlockSize)
+                                {
+                                    if (bShouldEncrypt)
+                                    {
+                                        byte[] buffer = inBuf.Skip(i).Take(iBlockSize).ToArray();
+                                        ice.Encrypt(buffer, out var temp);
+
+                                        Array.Copy(temp, 0, outBuf, i, iBlockSize);
+                                    }
+                                    else
+                                    {
+                                        byte[] buffer = inBuf.Skip(i).Take(iBlockSize).ToArray();
+                                        ice.Decrypt(buffer, out var temp);
+
+                                        Array.Copy(temp, 0, outBuf, i, iBlockSize);
+                                    }
+
+                                    if (InvokeRequired)
+                                    {
+                                        Invoke(new MethodInvoker(
+                                            delegate{ progressBar1.Value = i / iFileSize * 100; }));
+                                    }
+                                    else
+                                    {
+                                        progressBar1.Value = i / iFileSize * 100;
+                                    }
+                                    iBytesLeft -= iBlockSize;
+                                }
+
+                                Array.Copy(inBuf,
+                                    iFileSize - iBytesLeft,
+                                    outBuf,
+                                    iFileSize - iBytesLeft,
+                                    iBytesLeft);
+
+                                await fsw.WriteAsync(outBuf, 0, iFileSize);
+                            }
                         }
-
-                        fsw.Flush();
-                        fsw.Close();
-
-                        fsr.Close();
-                    }, fs);
-                }
+                    }
+                });
             }
         }
 
@@ -94,7 +112,7 @@ namespace SharpIce
 
             const string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=[]{};/.,~`:<>?";
             int len = checkBox1.Checked ? chars.Length : chars.Length - 29;
-            var rand = new Random(DateTime.UtcNow.Second);
+            var rand = new Random();
             for (int i = 0; i < 8; i++)
             {
                 char c = chars.ElementAt((int)Math.Floor(rand.NextDouble() * len));
