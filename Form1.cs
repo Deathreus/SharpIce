@@ -28,6 +28,9 @@ namespace SharpIce
 
         private void Form1_DragDrop(object sender, DragEventArgs e)
         {
+            Invoke(new Action(() => progressBar1.Value = 0));
+            Invoke(new Action(() => progressBar1.Maximum = 100));
+
             if (String.IsNullOrWhiteSpace(ICEKey))
             {
                 error.ShowDialog();
@@ -37,22 +40,29 @@ namespace SharpIce
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
             foreach (string file in files)
             {
+                using (FileStream fs = File.Open(file, FileMode.Open, FileAccess.Read))
+                {
+                    if (fs.CanRead)
+                    {
+                        fs.Seek(0, SeekOrigin.Begin);
+                        Invoke(new Action(() => progressBar1.Maximum += (int)fs.Length));
+                    }
+                }
+            }
+
+            foreach (string file in files)
+            {
                 ThreadPool.QueueUserWorkItem((o) =>
                 {
                     using (FileStream fsr = File.Open(file, FileMode.Open, FileAccess.Read))
                     {
                         if (fsr.CanRead)
                         {
-                            Invoke(new Action(() => progressBar1.Value = 0));
-
                             fsr.Seek(0, SeekOrigin.Begin);
                             int iFileSize = (int)fsr.Length;
 
-                            Invoke(new Action(() => progressBar1.Maximum = iFileSize));
-
                             string ext = file.Substring(file.LastIndexOf('.'));
                             bool bShouldEncrypt = ext.Equals(".txt");
-
                             string newExt = bShouldEncrypt ? ".ctx" : ".txt";
 
                             using (FileStream fsw = File.Create(file.Replace(ext, newExt)))
@@ -73,14 +83,14 @@ namespace SharpIce
                                     else
                                         ice.Decrypt(inBuf, out outBuf);
 
-                                    Invoke(new Action(() => progressBar1.Value = i));
+                                    Invoke(new Action(() => progressBar1.Value += iBlockSize));
 
                                     fsw.Write(outBuf, 0, iBlockSize);
 
                                     iBytesLeft -= iBlockSize;
                                 }
 
-                                Invoke(new Action(() => progressBar1.Value = iFileSize));
+                                Invoke(new Action(() => progressBar1.Value += iBytesLeft));
 
                                 if (iBytesLeft > 0)
                                 {

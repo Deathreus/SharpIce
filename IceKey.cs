@@ -99,7 +99,7 @@ namespace SharpIce
         /*
          * The single round ICE f function.
          */
-        private ulong ICEFormulate(ulong perm, IceSubKey subKey)
+        private ulong ICEFunc(ulong perm, IceSubKey subKey)
         {
             ulong tl, tr;       /* Expanded 40-bit values */
             ulong al, ar;       /* Salted expanded 40-bit values */
@@ -244,8 +244,8 @@ namespace SharpIce
 
             for (int i = 0; i < Rounds; i += 2)
             {
-                leftBits ^= ICEFormulate(rightBits, _keysched[i]);
-                rightBits ^= ICEFormulate(leftBits, _keysched[i + 1]);
+                leftBits ^= ICEFunc(rightBits, _keysched[i]);
+                rightBits ^= ICEFunc(leftBits, _keysched[i + 1]);
             }
 
             ciphertext = new byte[BlockSize];
@@ -270,8 +270,8 @@ namespace SharpIce
 
             for (int i = Rounds - 1; i > 0; i -= 2)
             {
-                leftBits ^= ICEFormulate(rightBits, _keysched[i]);
-                rightBits ^= ICEFormulate(leftBits, _keysched[i - 1]);
+                leftBits ^= ICEFunc(rightBits, _keysched[i]);
+                rightBits ^= ICEFunc(leftBits, _keysched[i - 1]);
             }
 
             plaintext = new byte[BlockSize];
