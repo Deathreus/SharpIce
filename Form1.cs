@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows.Forms;
 using System.IO;
 using System.Threading;
+using System.Collections.Generic;
 
 // This is the code for your desktop app.
 // Press Ctrl+F5 (or go to Debug > Start Without Debugging) to run your app.
@@ -13,6 +14,20 @@ namespace SharpIce
     {
         private static string ICEKey;
         private static ErrorForm error;
+
+        private Dictionary<string, string> CryptoMap = new Dictionary<string, string>
+        {
+            { ".ctx", ".txt" },
+            { ".txt", ".ctx" },
+            { ".nuc", ".nut" },
+            { ".nut", ".nuc" },
+        };
+
+        private List<string> EncryptList = new List<string>
+        {
+            ".txt",
+            ".nut",
+        };
 
         public ICEForm() => InitializeComponent();
 
@@ -38,7 +53,7 @@ namespace SharpIce
             }
 
             string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            foreach (string file in files)
+            foreach (string file in files)  // I know how bad this is...
             {
                 using (FileStream fs = File.Open(file, FileMode.Open, FileAccess.Read))
                 {
@@ -62,10 +77,11 @@ namespace SharpIce
                             int iFileSize = (int)fsr.Length;
 
                             string ext = file.Substring(file.LastIndexOf('.'));
-                            bool bShouldEncrypt = ext.Equals(".txt");
-                            string newExt = bShouldEncrypt ? ".ctx" : ".txt";
+                            bool bShouldEncrypt = EncryptList.Contains(ext);
+                            if (!CryptoMap.ContainsKey(ext))
+                                return;
 
-                            using (FileStream fsw = File.Create(file.Replace(ext, newExt)))
+                            using (FileStream fsw = File.Create(file.Replace(ext, CryptoMap[ext])))
                             {
                                 IceKey ice = new IceKey(0).Set(ICEKey);
 
